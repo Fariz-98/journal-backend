@@ -216,7 +216,7 @@ For Admin Only
 Roles Available:
 ```
 ADMIN (All permissions)
-MODERATOR (Journal & Comments write permissions)
+MODERATOR (Journal & Comment write permissions)
 USER (No permissions)
 ```
 ```PATCH``` ```/changeRole/{user-id-of-user-to-change}?role={role-name}```  
