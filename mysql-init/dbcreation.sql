@@ -1,1 +1,0 @@
-CREATE DATABASE journal_db;
