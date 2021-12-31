@@ -23,8 +23,7 @@ CREATE DATABASE journal_db;
 
 # Endpoints  
 
-## REGISTRATION
-Default: ```/api/registration```
+## REGISTRATION ```/api/registration```
 
 
 ### Register:  
@@ -65,8 +64,7 @@ Response Body:
 
 
 
-## LOGIN
-Default: ```/api/login```
+## LOGIN ```/api/login```
 
 
 ### Login
@@ -99,8 +97,7 @@ Response Headers:
 
 
 
-## JOURNAL
-Default: ```/api/journal```
+## JOURNAL ```/api/journal```
 
 
 ### Save Journal
@@ -154,8 +151,7 @@ Response Body:
 
 
 
-## COMMENT
-Default: ```/api/journal/{journalId}/comment```
+## COMMENT ```/api/journal/{journalId}/comment```
 
 ### Add Comment
 ```POST```  
@@ -195,8 +191,7 @@ Response Body:
 
 
 
-## USER
-Default: ```/api/user```
+## USER ```/api/user```
 
 
 ### View User Profile
