@@ -22,11 +22,11 @@ CREATE DATABASE journal_db;
 ```
 
 # Endpoints
-# REGISTRATION
+## REGISTRATION
 Default: ```/api/registration```
 
 
-## Register:  
+### Register:  
 ```POST``` ```/register```  
 
 Request Body:
@@ -47,13 +47,13 @@ Response Body:
 ```
 
 
-## Verify Token:
+### Verify Token:
 ```PATCH``` ```/verifyToken?token={token}```  
 
 Response Status: 204
 
 
-## Resend Token:
+### Resend Token:
 ```GET``` ```/resendToken?email={email}```  
 
 Response Status: 200  
@@ -64,11 +64,11 @@ Response Body:
 
 
 
-# LOGIN
+## LOGIN
 Default: ```/api/login```
 
 
-## Login
+### Login
 ```POST```  
 
 Request Body:  
@@ -85,7 +85,7 @@ Response Headers:
 ```refresh_token``` ```{jwt}```
 
 
-## Refresh JWT Token
+### Refresh JWT Token
 ```GET``` ```/refresh```  
 
 Request Headers:  
@@ -98,11 +98,11 @@ Response Headers:
 
 
 
-# JOURNAL
+## JOURNAL
 Default: ```/api/journal```
 
 
-## Save Journal
+### Save Journal
 ```POST```  
 
 Request Headers:  
@@ -120,7 +120,7 @@ Response Headers:
 ```Location``` ```/api/journal/{createdId}```
 
 
-## Delete Journal
+### Delete Journal
 ```DELETE```  ```/{id}```
 
 Request Headers:  
@@ -129,7 +129,7 @@ Request Headers:
 Response Status: 204
 
 
-## View All Journal
+### View All Journal
 ```GET```  
 
 Response Status: 200  
@@ -141,7 +141,7 @@ Response Body:
 ```
 
 
-## View one journal
+### View one journal
 This will return one journal with its comments
 ```GET``` ```/{id}```  
 
@@ -153,10 +153,10 @@ Response Body:
 
 
 
-# COMMENT
+## COMMENT
 Default: ```/api/journal/{journalId}/comment```
 
-## Add Comment
+### Add Comment
 ```POST```  
 
 Request Headers:  
@@ -171,7 +171,7 @@ Request Body:
 Response Status: 201
 
 
-## Delete Comment
+### Delete Comment
 ```DELETE``` ```/{id}```  
 
 Request Headers:  
@@ -180,7 +180,7 @@ Request Headers:
 Response Status: 204
 
 
-## Get/View One Comment
+### Get/View One Comment
 ```GET``` ```{id}```  
 
 Response Status: 200  
@@ -194,11 +194,11 @@ Response Body:
 
 
 
-# USER
+## USER
 Default: ```/api/user```
 
 
-## View User Profile
+### View User Profile
 This will return a user profile with user's journal  
 ```GET``` ```/{id}```  
 
@@ -215,7 +215,7 @@ Response Body:
 ```
 
 
-## Change User Role
+### Change User Role
 For Admin Only   
 Roles Available:
 ```
