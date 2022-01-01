@@ -165,7 +165,9 @@ Request Body:
 }
 ```  
 
-Response Status: 201
+Response Status: 201  
+Response Headers:
+```Location```  ```/api/journa/{journalId}/comment/{createdId}```  
 
 
 ### Delete Comment
