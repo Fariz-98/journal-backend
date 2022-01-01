@@ -166,7 +166,7 @@ Request Body:
 ```  
 
 Response Status: 201  
-Response Headers:
+Response Headers:  
 ```Location```  ```/api/journa/{journalId}/comment/{createdId}```  
 
 
