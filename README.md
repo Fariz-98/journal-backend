@@ -1,6 +1,6 @@
 # Journal Backend
-Spring Boot REST API backend for a journal-writing social media. This application is built to learn the Spring framework
-and showcase what I have learnt.
+Spring Boot REST API backend for a journal-writing social media. This project is developed to learn the Spring framework
+and showcase what I have learnt. The project also includes tests.
 
 # Docker
 Can be run using docker:
