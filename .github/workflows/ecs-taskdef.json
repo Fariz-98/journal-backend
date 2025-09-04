@@ -1,0 +1,50 @@
+{
+  "family": "journal-dev",
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "executionRoleArn": "arn:aws:iam::055239228507:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::055239228507:role/journalAppTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "REPLACED_BY_GHA",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-region": "ap-southeast-1",
+          "awslogs-group": "/ecs/journal-backend",
+          "awslogs-stream-prefix": "app"
+        }
+      },
+      "secrets": [
+        {
+          "name": "SPRING_DATASOURCE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-1:055239228507:secret:journal-db-X3Aw2Z:url::"
+        },
+        {
+          "name": "SPRING_DATASOURCE_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-1:055239228507:secret:journal-db-X3Aw2Z:username::"
+        },
+        {
+          "name": "SPRING_DATASOURCE_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-1:055239228507:secret:journal-db-X3Aw2Z:password::"
+        },
+        {
+          "name": "APPLICATION_JWT_SECRETKEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-1:055239228507:secret:journal-jwt-FQ3PRg:secret::"
+        }
+      ],
+      "essential": true
+    }
+  ]
+}
