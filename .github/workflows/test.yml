@@ -41,7 +41,7 @@ jobs:
       - name: Run unit tests
         run: mvn -B -DskipTests=false test
 
-      # 5) Upload surefire reports so you can read failures in the UI
+      # Upload surefire reports so you can read failures in the UI
       - name: Upload test reports
         if: always()                        # even on failure
         uses: actions/upload-artifact@v4
