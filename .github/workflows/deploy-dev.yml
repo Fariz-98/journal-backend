@@ -1,56 +1,80 @@
 name: Deploy to Dev
 
 on:
-  push:
-    branches: ["main"]
-  workflow_dispatch: {}
+  workflow_dispatch: {}  # Manual run
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write   # required for OIDC
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: dev
 
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: true
+
     steps:
+      # 1) Checkout the commit you want to deploy
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS (OIDC)
+      # 2) Download the artifact built by the Package workflow for this commit
+      - name: Download app artifact
+        uses: dawidd6/action-download-artifact@v10
+        with:
+          workflow: package.yml
+          workflow_conclusion: success
+          name: app-jar
+          commit: ${{ github.sha }}   # manual run uses selected commit
+          path: .
+
+      # 3) Verify integrity
+      - name: Verify artifact checksum
+        run: sha256sum -c target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
+
+      # 4) Configure AWS credentials via OIDC
+      - name: Configure AWS (OIDC to DEV role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}   # from 'dev' env
-          aws-region: ${{ vars.AWS_REGION }}            # env/repo variable
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}  # environment secret in 'dev'
+          aws-region:      ${{ vars.AWS_REGION }}
 
+      # 5) Login to ECR
       - name: Login to ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Resolve image digest from ECR (by commit SHA tag)
-        id: image
-        shell: bash
+      # 6) Build + push image
+      - name: Build & push image
+        id: build
         run: |
+          set -euo pipefail
           IMAGE="${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}"
-          TAG="${{ github.sha }}"
+          TAG="${{ github.sha }}"   # use the commit SHA from manual trigger
+
+          docker build -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+
           DIGEST=$(aws ecr describe-images \
             --repository-name "${{ vars.ECR_REPOSITORY }}" \
             --image-ids imageTag="$TAG" \
-            --query 'imageDetails[0].imageDigest' -o text)
-          if [ -z "$DIGEST" ] || [ "$DIGEST" = "None" ]; then
-            echo "No image found in ECR for tag $TAG"; exit 1
-          fi
+            --query 'imageDetails[0].imageDigest' --output text)
+
           echo "ref=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Render task definition (swap image)
+      # 7) Render ECS task definition with immutable digest
+      - name: Render task definition
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: ecs-taskdef.json
           container-name: ${{ vars.CONTAINER_NAME }}
-          image: ${{ steps.image.outputs.ref }}
+          image: ${{ steps.build.outputs.ref }}
 
+      # 8) Deploy to ECS
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:

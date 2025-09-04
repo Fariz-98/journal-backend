@@ -1,65 +1,59 @@
-name: CI - Package JAR
+name: Package JAR Artifact
 
 on:
-  workflow_dispatch: {}     # manual trigger
-  push:
-    branches: [ "main" ]    # or only after merges to main
+  workflow_run:
+    workflows: ["Java Test CI with Maven"]
+    types: [completed]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   package:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+
     runs-on: ubuntu-latest
 
     concurrency:
-      group: pkg-${{ github.ref }}
+      group: pkg-${{ github.event.workflow_run.head_branch || github.ref }}
       cancel-in-progress: true
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: temurin
           cache: maven
 
-      # Package jar for docker to create image
-      - name: Package JAR
-        run: mvn -B package -DskipTests
+      - name: Package (skip tests)
+        run: mvn -B -ntp -DskipTests package
 
-      # Configure AWS Credentials
-      - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      # Login to ECR
-      - name: Login to AWS ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # Build and push docker image
-      - name: Build and Push Docker Image
-        id: build
+      # Find JAR
+      - name: Create checksum
+        shell: bash
         run: |
-          IMAGE="${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}"
-          TAG="${{ github.sha }}"
-          docker build -t "$IMAGE:$TAG" .
-          docker push "$IMAGE:$TAG"
-          DIGEST=$(aws ecr describe-images --repository-name "${{ vars.ECR_REPOSITORY }}" --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)
-          echo "image_ref=$IMAGE@$DIGEST" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          sha256sum target/journal-backend-0.0.1-SNAPSHOT.jar | tee target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
 
-      # Save the image digest as an artifact
-      - name: Save image digest
-        run: echo "${{ steps.build.outputs.image_ref }}" > image.txt
-
-      # Upload image digest artifact
-      - name: Upload image digest artifact
+      # Publish the JAR as artifact "app-jar"
+      - name: Upload journal-backend.jar
         uses: actions/upload-artifact@v4
         with:
-          name: image-ref
-          path: image.txt
+          name: app-jar
+          path: |
+            target/journal-backend-0.0.1-SNAPSHOT.jar
+            target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
+          if-no-files-found: error
+
 
