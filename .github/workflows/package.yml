@@ -49,10 +49,7 @@ jobs:
           TAG="${{ github.sha }}"
           docker build -t "$IMAGE:$TAG" .
           docker push "$IMAGE:$TAG"
-          DIGEST=$(aws ecr describe-images \
-            --repository-name "${{ vars.ECR_REPOSITORY }}" \
-            --image-ids imageTag="$TAG" \
-            --query 'imageDetails[0].imageDigest' -o text)
+          DIGEST=$(aws ecr describe-images --repository-name "${{ vars.ECR_REPOSITORY }}" --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)
           echo "image_ref=$IMAGE@$DIGEST" >> $GITHUB_OUTPUT
 
       # Save the image digest as an artifact
