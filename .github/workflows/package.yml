@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           sha256sum target/journal-backend-0.0.1-SNAPSHOT.jar | tee target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
 
-      # Create target artificial artifact folder and target to preserve target
+      # Create target artificial artifact folder to preserve target folder
       - name: Stage artifact layout
         shell: bash
         run: |

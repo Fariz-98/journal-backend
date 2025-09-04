@@ -70,7 +70,7 @@ jobs:
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ecs-taskdef.json
+          task-definition: .github/workflows/ecs-taskdef.json
           container-name: ${{ vars.CONTAINER_NAME }}
           image: ${{ steps.build.outputs.ref }}
 
