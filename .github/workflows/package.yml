@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   package:
@@ -26,8 +27,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -39,29 +38,98 @@ jobs:
       - name: Package (skip tests)
         run: mvn -B -ntp -DskipTests package
 
-      # Find JAR
-      - name: Create checksum
+      - name: Build role ARN deterministically
+        id: arn
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum target/journal-backend-0.0.1-SNAPSHOT.jar | tee target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
+          # 2) We construct the ARN using stable pieces.
+          echo "role_arn=arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.DEV_CICD_ROLE_NAME }}" >> "$GITHUB_OUTPUT"
 
-      # Create target artificial artifact folder to preserve target folder
-      - name: Stage artifact layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf ci-target
-          mkdir -p ci-target/target
-          cp target/journal-backend-0.0.1-SNAPSHOT.jar ci-target/target/
-          cp target/journal-backend-0.0.1-SNAPSHOT.jar.sha256 ci-target/target/
-
-      # Publish the JAR as artifact "app-jar"
-      - name: Upload journal-backend.jar
-        uses: actions/upload-artifact@v4
+      - name: Configure AWS via OIDC (ECR role)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: app-jar
-          path: ci-target
-          if-no-files-found: error
+          role-to-assume: ${{ steps.arn.outputs.role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Retrieve SSM contracts for ecr repo
+        shell: bash
+        run: |
+          set -euo pipefail
 
+          aws ssm get-parameter \
+            --name "${{ vars.DEV_SSM_JOURNAL_PARAM }}" \
+            --query 'Parameter.Value' \
+            --output text > journal.json
+
+          echo "=== journal.json ==="; cat journal.json
+
+      - name: Extract ECR Settings
+        id: cfg
+        run: |
+          set -euo pipefail
+
+          # ECR Repo
+          ECR_REPO_URL=$(jq -r '.ecrRepo' journal.json)
+
+          # Create SHA TAG from commit for traceability
+          SHA_TAG="${GITHUB_SHA::7}"
+
+          # Split ECR URL to get account host and repo name
+          ACCOUNT_HOST="${ECR_REPO_URL%/*}"
+          REPO_NAME="${ECR_REPO_URL##*/}"
+
+          # Output to use later
+          echo "ecr_repo_url=$ECR_REPO_URL" >> "$GITHUB_OUTPUT"
+          echo "account_host=$ACCOUNT_HOST" >> "$GITHUB_OUTPUT"
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=$SHA_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Login to ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "${{ steps.cfg.outputs.account_host }}"
+
+      - name: Build and push image
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FULL_REPO="${{ steps.cfg.outputs.account_host }}/${{ steps.cfg.outputs.repo_name }}"
+          TAG="${{ steps.cfg.outputs.sha_tag }}"
+
+          # Build image
+          docker build -t "$FULL_REPO:dev-$TAG" .
+          docker push "$FULL_REPO:dev-$TAG"
+
+          # Get digest for of TAG
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "${{ steps.cfg.outputs.repo_name }}" \
+            --image-ids imageTag="dev-$TAG" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          # save outputs for to keep digest
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "image_uri=$FULL_REPO:dev-$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Update app contract with image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -n \
+            --arg img "${{ steps.push.outputs.image_uri }}" \
+            --arg dig "${{ steps.push.outputs.digest }}" \
+            --arg tag "dev-${{ steps.cfg.outputs.sha_tag }}" \
+            '{imageUri:$img, imageDigest:$dig, imageTag:$tag}' \
+            > shared.artifact.json
+
+          aws ssm put-parameter \
+            --name "${{ vars.SHARED_SSM_JOURNAL_PARAM }}" \
+            --type "String" \
+            --overwrite \
+            --value "file://shared.artifact.json"
