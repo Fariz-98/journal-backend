@@ -72,6 +72,7 @@ jobs:
           SERVICE_NAME=$(jq -r '.serviceName' journal.env.json)
           TASK_FAMILY=$(jq -r '.taskFamily' journal.env.json)
           CONTAINER_NAME=$(jq -r '.backendAppName' journal.env.json)
+          SECRET_ARN=$(jq -r '.secretArn' journal.env.json)
           EXEC_ROLE_ARN=$(jq -r '.execRoleArn' journal.env.json)
           TASK_ROLE_ARN=$(jq -r '.taskRoleArn' journal.env.json)
 
@@ -80,7 +81,7 @@ jobs:
           IMAGE_DIGEST=$(jq -r '.imageDigest' journal.shared.json)
 
           # Sanity check
-          for v in "$CLUSTER_ARN" "$SERVICE_NAME" "$TASK_FAMILY" "$CONTAINER_NAME" "$EXEC_ROLE_ARN" "$TASK_ROLE_ARN" "$ECR_REPO" "$IMAGE_DIGEST"; do
+          for v in "$CLUSTER_ARN" "$SERVICE_NAME" "$TASK_FAMILY" "$CONTAINER_NAME" "$EXEC_ROLE_ARN" "$TASK_ROLE_ARN" "$ECR_REPO" "$IMAGE_DIGEST" "$SECRET_ARN"; do
             if [ -z "$v" ] || [ "$v" = "null" ]; then echo "Missing deploy input: $v"; exit 1; fi
           done
 
@@ -95,8 +96,28 @@ jobs:
             echo "container=$CONTAINER_NAME"
             echo "exec_role=$EXEC_ROLE_ARN"
             echo "task_role=$TASK_ROLE_ARN"
+            echo "secret_arn=$SECRET_ARN"
             echo "image_digest_uri=$IMAGE_URI_DIGEST"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Rotate secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Create secrets
+          NEW_JWT=$(openssl rand -base64 32 | tr -d '\n')
+
+          # Build secret JSON
+          jq -n --arg v "$NEW_JWT" '{jwtSecret: $v}' > secret.json
+
+          # Put secret JSON into secrets manager
+          aws secretsmanager put-secret-value \
+            --secret-id "${{ steps.cfg.outputs.secret_arn }}" \
+            --secret-string file://secret.json
+            --client-request-token "${GITHUB_SHA}"
+
+          echo "Rotated secret in ${{ steps.cfg.outputs.secret_arn }} (AWSCURRENT updated)."
 
       - name: Find task definition
         id: td
