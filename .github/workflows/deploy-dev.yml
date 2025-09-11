@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # required for OIDC
+  id-token: write
 
 jobs:
   deploy:
@@ -14,71 +14,173 @@ jobs:
 
     concurrency:
       group: deploy-dev
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
-      # 1) Checkout the commit you want to deploy
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2) Download the artifact built by the Package workflow for this commit
-      - name: Download app artifact
-        uses: dawidd6/action-download-artifact@v10
-        with:
-          workflow: package.yml
-          workflow_conclusion: success
-          name: app-jar
-          commit: ${{ github.sha }}   # manual run uses selected commit
-          path: .
-
-      # 3) Verify integrity
-      - name: Verify artifact checksum
-        run: sha256sum -c target/journal-backend-0.0.1-SNAPSHOT.jar.sha256
-
-      # 4) Configure AWS credentials via OIDC
-      - name: Configure AWS (OIDC to DEV role)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}  # environment secret in 'dev'
-          aws-region:      ${{ vars.AWS_REGION }}
-
-      # 5) Login to ECR
-      - name: Login to ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # 6) Build + push image
-      - name: Build & push image
-        id: build
+      - name: Build role ARN deterministically
+        id: arn
+        shell: bash
         run: |
           set -euo pipefail
-          IMAGE="${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}"
-          TAG="${{ github.sha }}"   # use the commit SHA from manual trigger
+          # 2) We construct the ARN using stable pieces.
+          echo "role_arn=arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.DEV_CICD_ROLE_NAME }}" >> "$GITHUB_OUTPUT"
 
-          docker build -t "$IMAGE:$TAG" .
-          docker push "$IMAGE:$TAG"
+      - name: Configure AWS via OIDC (CICD role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.arn.outputs.role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-          DIGEST=$(aws ecr describe-images \
-            --repository-name "${{ vars.ECR_REPOSITORY }}" \
-            --image-ids imageTag="$TAG" \
-            --query 'imageDetails[0].imageDigest' --output text)
+      - name: Read contracts from SSM
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo "ref=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
+          # dev contract
+          aws ssm get-parameter \
+            --name "${{ vars.DEV_SSM_INFRA_PARAM }}" \
+            --query 'Parameter.Value' \
+            --output text > infra.json
 
-      # 7) Render ECS task definition with immutable digest
-      - name: Render task definition
+          # journal dev contract
+          aws ssm get-parameter \
+            --name "${{ vars.DEV_SSM_JOURNAL_PARAM }}" \
+            --query 'Parameter.Value' \
+            --output text > journal.env.json
+
+          # shared journal contract
+          aws ssm get-parameter \
+            --name "${{ vars.SHARED_SSM_JOURNAL_PARAM }}" \
+            --query 'Parameter.Value' \
+            --output text > journal.shared.json
+
+          echo "=== dev infra ==="; cat infra.json
+          echo "=== dev journal ==="; cat journal.env.json
+          echo "=== shared artifact ==="; cat journal.shared.json
+
+      - name: Extract inputs and validate
+        id: cfg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Env
+          CLUSTER_ARN=$(jq -r '.clusterArn' infra.json)
+          SERVICE_NAME=$(jq -r '.serviceName' journal.env.json)
+          TASK_FAMILY=$(jq -r '.taskFamily' journal.env.json)
+          CONTAINER_NAME=$(jq -r '.backendAppName' journal.env.json)
+          EXEC_ROLE_ARN=$(jq -r '.execRoleArn' journal.env.json)
+          TASK_ROLE_ARN=$(jq -r '.taskRoleArn' journal.env.json)
+
+          # Shared digest
+          ECR_REPO=$(jq -r '.imageUri' journal.shared.json | awk -F: '{print $1}')
+          IMAGE_DIGEST=$(jq -r '.imageDigest' journal.shared.json)
+
+          # Sanity check
+          for v in "$CLUSTER_ARN" "$SERVICE_NAME" "$TASK_FAMILY" "$CONTAINER_NAME" "$EXEC_ROLE_ARN" "$TASK_ROLE_ARN" "$ECR_REPO" "$IMAGE_DIGEST"; do
+            if [ -z "$v" ] || [ "$v" = "null" ]; then echo "Missing deploy input: $v"; exit 1; fi
+          done
+
+          # Build image reference
+          IMAGE_URI_DIGEST="${ECR_REPO}@${IMAGE_DIGEST}"
+
+          # Expose
+          {
+            echo "cluster=$CLUSTER_ARN"
+            echo "service=$SERVICE_NAME"
+            echo "family=$TASK_FAMILY"
+            echo "container=$CONTAINER_NAME"
+            echo "exec_role=$EXEC_ROLE_ARN"
+            echo "task_role=$TASK_ROLE_ARN"
+            echo "image_digest_uri=$IMAGE_URI_DIGEST"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find task definition
+        id: td
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TD_ARN=$(aws ecs describe-services \
+            --cluster "${{ steps.cfg.outputs.cluster }}" \
+            --services "${{ steps.cfg.outputs.service }}" \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          echo "arn=$TD_ARN" >> "$GITHUB_OUTPUT"
+          echo "Service is currently using TD: $TD_ARN"
+
+      - name: Describe task definition
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecs describe-task-definition \
+            --task-definition "${{ steps.td.outputs.arn }}" \
+            --include TAGS > td.json
+
+          # Peek for debugging
+          jq '.taskDefinition | {family, names: [.containerDefinitions[].name]}' td.json
+
+      - name: Guardrails, check family matches and container exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Family must match
+          jq -e --arg fam "${{ steps.cfg.outputs.family }}" \
+            '.taskDefinition.family == $fam' td.json >/dev/null || { echo "ERROR: Task family mismatch"; exit 1; }
+
+          # Check container with the name
+          COUNT=$(jq -r --arg n "${{ steps.cfg.outputs.container }}" \
+            '[.taskDefinition.containerDefinitions[] | select(.name==$n)] | length' td.json)
+
+          [ "$COUNT" -eq 1 ] || {
+            echo "ERROR: No container named '${{ steps.cfg.outputs.container }}'"; exit 1; }
+
+      - name: Build new TD
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Construct JSON register payload for ECS
+          # Copy fields from described TD
+          # Pin roles from contracts
+          # Patch container image
+          jq '
+            .taskDefinition
+            | {
+                family, networkMode, cpu, memory, requiresCompatibilities,
+                executionRoleArn, taskRoleArn, containerDefinitions, volumes,
+                placementConstraints, runtimePlatform, ephemeralStorage
+              }
+            ' td.json > taskdef.json
+
+          jq \
+            --arg exec "${{ steps.cfg.outputs.exec_role }}" \
+            --arg task "${{ steps.cfg.outputs.task_role }}" \
+            '.executionRoleArn=$exec | .taskRoleArn=$task' \
+            taskdef.json > taskdef.pinned.json
+
+          echo "taskdef=taskdef.pinned.json" >> "$GITHUB_OUTPUT"
+          jq '{family, names:[.containerDefinitions[].name]}' taskdef.pinned.json
+
+      - name: Render task definition with new images
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: .github/workflows/ecs-taskdef.json
-          container-name: ${{ vars.CONTAINER_NAME }}
-          image: ${{ steps.build.outputs.ref }}
+          task-definition: ${{ steps.base.outputs.taskdef }}
+          container-name: ${{ steps.cfg.outputs.container }}
+          image: ${{ steps.cfg.outputs.image_digest_uri }}
 
-      # 8) Deploy to ECS
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+      - name: Deploy task definition to service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.render.outputs.task-definition }}
-          service: ${{ vars.ECS_SERVICE }}
-          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ steps.cfg.outputs.service }}
+          cluster: ${{ steps.cfg.outputs.cluster }}
           wait-for-service-stability: true
