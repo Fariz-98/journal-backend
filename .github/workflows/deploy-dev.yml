@@ -114,7 +114,7 @@ jobs:
           # Put secret JSON into secrets manager
           aws secretsmanager put-secret-value \
             --secret-id "${{ steps.cfg.outputs.secret_arn }}" \
-            --secret-string file://secret.json
+            --secret-string file://secret.json \
             --client-request-token "${GITHUB_SHA}"
 
           echo "Rotated secret in ${{ steps.cfg.outputs.secret_arn }} (AWSCURRENT updated)."
