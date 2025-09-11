@@ -1,4 +1,4 @@
-name: Package JAR Artifact
+name: Package and Upload to ECR
 
 on:
   workflow_run:
