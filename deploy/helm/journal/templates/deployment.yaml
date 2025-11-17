@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "journal.fullname" . }}
+  labels:
+    {{- include "journal.labels" . | nindent 4 }}
+spec:
+  revisionHistoryLimit: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "journal.fullname" . }}
+
+  template:
+    metadata:
+      labels:
+        app: {{ include "journal.fullname" . }}
+        {{- include "journal.labels" . | nindent 8 }}
+
+    spec:
+      initContainers:
+      - name: wait-for-mysql
+        image: busybox:1.36
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Waiting for mysql:3306..." ;
+            until nc -zv mysql 3306 ; do sleep 2 ; done ;
+            echo "MySQL reachable."
+
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+          - containerPort: 8080
+            name: http
+
+          env:
+          - name: SPRING_DATASOURCE_URL
+            value: {{ .Values.app.datasourceUrl | quote }}
+          - name: SPRING_DATASOURCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.app.datasourceUsernameRef.name }}
+                key: {{ .Values.app.datasourceUsernameRef.key }}
+
+          - name: SPRING_DATASOURCE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.app.datasourcePasswordRef.name }}
+                key: {{ .Values.app.datasourcePasswordRef.key }}
+
+          - name: APPLICATION_JWT_SECRETKEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "journal.fullname" . }}-secret
+                key: APPLICATION_JWT_SECRETKEY
+          
+          startupProbe:
+            tcpSocket: { port: {{ .Values.probes.startup.port }} }
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+
+          readinessProbe:
+            tcpSocket: { port: {{ .Values.probes.readiness.port }} }
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+
+          livenessProbe:
+            tcpSocket: { port: {{ .Values.probes.liveness.port }} }
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          
