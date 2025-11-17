@@ -1,0 +1,6 @@
+apiVersion: v2
+name: journal
+description: Helm chart for the Journal Spring Boot API
+type: application
+version: 0.1.0
+appVersion: "0.0.1"

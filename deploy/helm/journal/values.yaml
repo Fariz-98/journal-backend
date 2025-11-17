@@ -1,0 +1,30 @@
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8080
+
+image:
+  repository: journal-backend
+  tag: dev
+  pullPolicy: IfNotPresent
+
+app:
+  datasourceUrl: "jdbc:mysql://mysql.journal-dev.svc.cluster.local:3306/journal?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+  datasourceUsernameRef:
+    name: mysql-secret
+    key: MYSQL_USER
+  datasourcePasswordRef:
+    name: mysql-secret
+    key: MYSQL_PASSWORD
+
+probes:
+  startup:   { type: tcp, port: 8080, periodSeconds: 10, failureThreshold: 30 }
+  readiness: { type: tcp, port: 8080, periodSeconds: 10, failureThreshold: 3  }
+  liveness:  { type: tcp, port: 8080, periodSeconds: 10, failureThreshold: 3  }
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 1Gi }
+
+jwt:
+  secret: "a8a94ef93e45005ade280b65db44fb7e835405ef1ab4ee5da0ddfa17fdc55eeb42f2b87f"
