@@ -27,6 +27,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/journal_db
       SPRING_DATASOURCE_USERNAME: journaluser
       SPRING_DATASOURCE_PASSWORD: journalpassword
+      APPLICATION_JWT_SECRETKEY: 67HD6ap4jkMxdYC/kW871A==67HD6ap4jkMxdYC/kW871A==
     build:
       context: "."
       dockerfile: "Dockerfile"
