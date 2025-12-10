@@ -9,10 +9,18 @@ services:
       - MYSQL_USER=journaluser
       - MYSQL_PASSWORD=journalpassword
       - MYSQL_DATABASE=journal_db
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   journal-backend:
     image: journal-backend
     restart: on-failure
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:

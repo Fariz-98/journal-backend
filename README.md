@@ -7,8 +7,6 @@ Can be run using docker:
 ```
 Docker compose -f docker-compose.yaml up
 ```
-[wait-for-it.sh](https://github.com/vishnubob/wait-for-it) is used to wait for MySQL to start before allowing spring to
-boot itself up. If this fails or not used, then ```restart: on-failure``` is set on docker compose  
 
 # Without Docker
 Modify application.properties datasource to:
